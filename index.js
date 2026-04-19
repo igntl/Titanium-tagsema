@@ -20,10 +20,10 @@ const client = new Client({
 
 // 🔥 إعداداتك
 const TOKEN = process.env.TOKEN;
-const CHANNEL_ID = "1483219896069525665";
-const LOG_CHANNEL = "1490286354175758366";
-const ROLE_ID = "1495426762971283528";
-const ADMIN_ROLE = "1475334752436359320";
+const CHANNEL_ID = "1495460515911172136";
+const LOG_CHANNEL = "1495466678136606942";
+const ROLE_ID = "1360011347768774796";
+const ADMIN_ROLE = "1495462892026200104";
 
 let waitingAdd = {};
 let waitingRemove = {};
