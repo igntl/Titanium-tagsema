@@ -28,8 +28,10 @@ const ADMIN_ROLE = "1475334752436359320";
 let waitingAdd = {};
 let waitingRemove = {};
 
-// 🏆 تحديث البورد (ثابتة)
-async function updateBoard(channel) {
+// 🏆 تحديث البورد (مضمون بدون مشاكل)
+async function updateBoard() {
+  const channel = client.channels.cache.get(CHANNEL_ID);
+  if (!channel) return;
 
   let messageId = await db.get("leaderboardMessageId");
 
@@ -46,26 +48,30 @@ async function updateBoard(channel) {
 
   const embed = new EmbedBuilder()
     .setColor("#2b2d31")
-    .setTitle("لوحة مسؤولين التقسيمات")
+    .setTitle("🏆 لوحة مسؤولي التقسيمات")
     .setDescription(text)
     .setFooter({ text: "TITANIUM DIVISION SYSTEM" })
     .setTimestamp();
 
-  if (!messageId) {
-    const msg = await channel.send({ embeds: [embed] });
-    await db.set("leaderboardMessageId", msg.id);
-  } else {
-    try {
-      const msg = await channel.messages.fetch(messageId);
-      await msg.edit({ embeds: [embed] });
-    } catch {
-      const msg = await channel.send({ embeds: [embed] });
-      await db.set("leaderboardMessageId", msg.id);
+  try {
+    if (messageId) {
+      const msg = await channel.messages.fetch(messageId).catch(() => null);
+
+      if (msg) {
+        await msg.edit({ embeds: [embed] });
+        return;
+      }
     }
+
+    const newMsg = await channel.send({ embeds: [embed] });
+    await db.set("leaderboardMessageId", newMsg.id);
+
+  } catch (err) {
+    console.log("❌ خطأ تحديث البورد:", err);
   }
 }
 
-// 🎛️ البانل (ترسل يدوي فقط)
+// 🎛️ البانل
 function sendPanel(channel) {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId("claim").setLabel("استلام").setStyle(ButtonStyle.Success),
@@ -77,27 +83,26 @@ function sendPanel(channel) {
 }
 
 // تشغيل
-client.once("ready", async () => {
+client.once("ready", () => {
   console.log(`✅ ${client.user.tag} شغال`);
 });
 
-// 📩 الأوامر
+// 📩 أوامر
 client.on("messageCreate", async (msg) => {
   if (msg.author.bot) return;
-
   if (msg.channel.id !== CHANNEL_ID) return;
 
-  // إرسال البانل
+  // بانل
   if (msg.content === "!panel") {
     if (!msg.member.roles.cache.has(ADMIN_ROLE)) return;
     msg.delete().catch(() => {});
     sendPanel(msg.channel);
   }
 
-  // عرض اللائحة
+  // عرض
   if (msg.content === "!lb") {
     if (!msg.member.roles.cache.has(ADMIN_ROLE)) return;
-    updateBoard(msg.channel);
+    updateBoard();
   }
 
   // تصفير
@@ -114,7 +119,7 @@ client.on("messageCreate", async (msg) => {
     await db.delete("leaderboardMessageId");
 
     msg.channel.send("تم تصفير اللائحة");
-    updateBoard(msg.channel);
+    updateBoard();
   }
 
   // ➕ إضافة
@@ -134,7 +139,7 @@ client.on("messageCreate", async (msg) => {
     delete waitingAdd[msg.author.id];
 
     msg.delete().catch(() => {});
-    updateBoard(msg.channel);
+    updateBoard();
   }
 
   // ➖ حذف
@@ -155,11 +160,11 @@ client.on("messageCreate", async (msg) => {
     delete waitingRemove[msg.author.id];
 
     msg.delete().catch(() => {});
-    updateBoard(msg.channel);
+    updateBoard();
   }
 });
 
-// 🎯 الأزرار
+// 🎯 الأزرار (بدون تأخير ومضمون)
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isButton()) return;
 
@@ -204,15 +209,15 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     await interaction.deferUpdate();
-    updateBoard(client.channels.cache.get(CHANNEL_ID));
+    await updateBoard();
   }
 
-  // 👑 إدارة فقط
+  // 👑 إدارة
   if (!member.roles.cache.has(ADMIN_ROLE)) {
     return interaction.reply({ content: "❌ للإدارة فقط", ephemeral: true });
   }
 
-  // ➕ زر إضافة
+  // ➕
   if (interaction.customId === "add") {
     waitingAdd[userId] = true;
 
@@ -222,7 +227,7 @@ client.on("interactionCreate", async (interaction) => {
     });
   }
 
-  // ➖ زر حذف
+  // ➖
   if (interaction.customId === "remove") {
     waitingRemove[userId] = true;
 
