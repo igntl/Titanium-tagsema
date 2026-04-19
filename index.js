@@ -27,6 +27,8 @@ const ADMIN_ROLE = "1475334752436359320";
 
 let leaderboardMessageId = null;
 let lastClaim = {};
+let waitingAdd = {};
+let waitingRemove = {};
 
 // 🏆 تحديث البورد
 async function updateBoard(channel) {
@@ -62,29 +64,18 @@ async function updateBoard(channel) {
   }
 }
 
-// 🎛️ إرسال البانل
-async function sendPanel(channel) {
+// 🎛️ البانل
+function sendPanel(channel) {
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId("claim")
-      .setLabel("استلام")
-      .setStyle(ButtonStyle.Success),
-
-    new ButtonBuilder()
-      .setCustomId("add")
-      .setLabel("إضافة")
-      .setStyle(ButtonStyle.Primary),
-
-    new ButtonBuilder()
-      .setCustomId("remove")
-      .setLabel("حذف")
-      .setStyle(ButtonStyle.Danger)
+    new ButtonBuilder().setCustomId("claim").setLabel("استلام").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId("add").setLabel("إضافة").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("remove").setLabel("حذف").setStyle(ButtonStyle.Danger)
   );
 
   channel.send({ content: "لوحة التحكم", components: [row] });
 }
 
-// 🔥 أول تشغيل
+// 🔥 تشغيل
 client.once("ready", async () => {
   console.log(`✅ ${client.user.tag} شغال`);
 
@@ -95,33 +86,28 @@ client.once("ready", async () => {
   }
 });
 
-// 📩 الأوامر
+// 📩 أوامر
 client.on("messageCreate", async (msg) => {
   if (msg.author.bot) return;
 
-  // 🎛️ إرسال البانل
+  // 🎛️ بانل
   if (msg.content === "!panel") {
     if (!msg.member.roles.cache.has(ADMIN_ROLE)) return;
-
     msg.delete().catch(() => {});
     sendPanel(msg.channel);
   }
 
-  // 🏆 عرض اللائحة
+  // 🏆 عرض
   if (msg.content === "!lb") {
     if (!msg.member.roles.cache.has(ADMIN_ROLE)) return;
-
     updateBoard(msg.channel);
   }
 
-  // ♻️ تصفير اللائحة
+  // ♻️ تصفير
   if (msg.content === "!clr") {
-    if (!msg.member.roles.cache.has(ADMIN_ROLE)) {
-      return msg.reply("❌ للإدارة فقط");
-    }
+    if (!msg.member.roles.cache.has(ADMIN_ROLE)) return;
 
     const all = await db.all();
-
     for (const entry of all) {
       if (entry.id.startsWith("points_")) {
         await db.delete(entry.id);
@@ -129,9 +115,48 @@ client.on("messageCreate", async (msg) => {
     }
 
     leaderboardMessageId = null;
-
     msg.channel.send("تم تصفير اللائحة");
+    updateBoard(msg.channel);
+  }
 
+  // ➕ تنفيذ الإضافة
+  if (waitingAdd[msg.author.id]) {
+    if (!msg.member.roles.cache.has(ADMIN_ROLE)) return;
+
+    const user = msg.mentions.users.first();
+    const amount = parseInt(msg.content.split(" ")[1]);
+
+    if (!user || isNaN(amount)) return;
+
+    let points = await db.get(`points_${user.id}`) || 0;
+    points += amount;
+
+    await db.set(`points_${user.id}`, points);
+
+    delete waitingAdd[msg.author.id];
+
+    msg.delete().catch(() => {});
+    updateBoard(msg.channel);
+  }
+
+  // ➖ تنفيذ الحذف
+  if (waitingRemove[msg.author.id]) {
+    if (!msg.member.roles.cache.has(ADMIN_ROLE)) return;
+
+    const user = msg.mentions.users.first();
+    const amount = parseInt(msg.content.split(" ")[1]);
+
+    if (!user || isNaN(amount)) return;
+
+    let points = await db.get(`points_${user.id}`) || 0;
+    points -= amount;
+
+    if (points <= 0) await db.delete(`points_${user.id}`);
+    else await db.set(`points_${user.id}`, points);
+
+    delete waitingRemove[msg.author.id];
+
+    msg.delete().catch(() => {});
     updateBoard(msg.channel);
   }
 });
@@ -182,31 +207,29 @@ client.on("interactionCreate", async (interaction) => {
     updateBoard(client.channels.cache.get(CHANNEL_ID));
   }
 
-  // 👑 إدارة
+  // 👑 إدارة فقط
   if (!member.roles.cache.has(ADMIN_ROLE)) {
     return interaction.reply({ content: "❌ للإدارة فقط", ephemeral: true });
   }
 
-  // ➕ إضافة
+  // ➕ زر إضافة
   if (interaction.customId === "add") {
-    let points = await db.get(`points_${userId}`) || 0;
-    points++;
-    await db.set(`points_${userId}`, points);
+    waitingAdd[userId] = true;
 
-    await interaction.deferUpdate();
-    updateBoard(client.channels.cache.get(CHANNEL_ID));
+    return interaction.reply({
+      content: "اكتب: @user رقم",
+      ephemeral: true
+    });
   }
 
-  // ➖ حذف
+  // ➖ زر حذف
   if (interaction.customId === "remove") {
-    let points = await db.get(`points_${userId}`) || 0;
-    points--;
+    waitingRemove[userId] = true;
 
-    if (points <= 0) await db.delete(`points_${userId}`);
-    else await db.set(`points_${userId}`, points);
-
-    await interaction.deferUpdate();
-    updateBoard(client.channels.cache.get(CHANNEL_ID));
+    return interaction.reply({
+      content: "اكتب: @user رقم",
+      ephemeral: true
+    });
   }
 });
 
