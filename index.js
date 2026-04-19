@@ -25,13 +25,14 @@ const LOG_CHANNEL = "1490286354175758366";
 const ROLE_ID = "1495426762971283528";
 const ADMIN_ROLE = "1475334752436359320";
 
-let leaderboardMessageId = null;
-let lastClaim = {};
 let waitingAdd = {};
 let waitingRemove = {};
 
-// 🏆 تحديث البورد
+// 🏆 تحديث البورد (ثابتة)
 async function updateBoard(channel) {
+
+  let messageId = await db.get("leaderboardMessageId");
+
   const data = await db.all();
 
   const filtered = data
@@ -45,26 +46,26 @@ async function updateBoard(channel) {
 
   const embed = new EmbedBuilder()
     .setColor("#2b2d31")
-    .setTitle("🏆 لوحة مسؤولي التقسيمات")
+    .setTitle("لوحة مسؤولين التقسيمات")
     .setDescription(text)
     .setFooter({ text: "TITANIUM DIVISION SYSTEM" })
     .setTimestamp();
 
-  if (!leaderboardMessageId) {
+  if (!messageId) {
     const msg = await channel.send({ embeds: [embed] });
-    leaderboardMessageId = msg.id;
+    await db.set("leaderboardMessageId", msg.id);
   } else {
     try {
-      const msg = await channel.messages.fetch(leaderboardMessageId);
+      const msg = await channel.messages.fetch(messageId);
       await msg.edit({ embeds: [embed] });
     } catch {
       const msg = await channel.send({ embeds: [embed] });
-      leaderboardMessageId = msg.id;
+      await db.set("leaderboardMessageId", msg.id);
     }
   }
 }
 
-// 🎛️ البانل
+// 🎛️ البانل (ترسل يدوي فقط)
 function sendPanel(channel) {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId("claim").setLabel("استلام").setStyle(ButtonStyle.Success),
@@ -75,35 +76,31 @@ function sendPanel(channel) {
   channel.send({ content: "لوحة التحكم", components: [row] });
 }
 
-// 🔥 تشغيل
+// تشغيل
 client.once("ready", async () => {
   console.log(`✅ ${client.user.tag} شغال`);
-
-  const channel = client.channels.cache.get(CHANNEL_ID);
-  if (channel) {
-    sendPanel(channel);
-    updateBoard(channel);
-  }
 });
 
-// 📩 أوامر
+// 📩 الأوامر
 client.on("messageCreate", async (msg) => {
   if (msg.author.bot) return;
 
-  // 🎛️ بانل
+  if (msg.channel.id !== CHANNEL_ID) return;
+
+  // إرسال البانل
   if (msg.content === "!panel") {
     if (!msg.member.roles.cache.has(ADMIN_ROLE)) return;
     msg.delete().catch(() => {});
     sendPanel(msg.channel);
   }
 
-  // 🏆 عرض
+  // عرض اللائحة
   if (msg.content === "!lb") {
     if (!msg.member.roles.cache.has(ADMIN_ROLE)) return;
     updateBoard(msg.channel);
   }
 
-  // ♻️ تصفير
+  // تصفير
   if (msg.content === "!clr") {
     if (!msg.member.roles.cache.has(ADMIN_ROLE)) return;
 
@@ -114,12 +111,13 @@ client.on("messageCreate", async (msg) => {
       }
     }
 
-    leaderboardMessageId = null;
+    await db.delete("leaderboardMessageId");
+
     msg.channel.send("تم تصفير اللائحة");
     updateBoard(msg.channel);
   }
 
-  // ➕ تنفيذ الإضافة
+  // ➕ إضافة
   if (waitingAdd[msg.author.id]) {
     if (!msg.member.roles.cache.has(ADMIN_ROLE)) return;
 
@@ -139,7 +137,7 @@ client.on("messageCreate", async (msg) => {
     updateBoard(msg.channel);
   }
 
-  // ➖ تنفيذ الحذف
+  // ➖ حذف
   if (waitingRemove[msg.author.id]) {
     if (!msg.member.roles.cache.has(ADMIN_ROLE)) return;
 
@@ -176,14 +174,16 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ content: "❌ ليس لديك صلاحية", ephemeral: true });
     }
 
-    if (lastClaim[userId] && now - lastClaim[userId] < 300000) {
+    const lastTime = await db.get(`lastClaim_${userId}`);
+
+    if (lastTime && now - lastTime < 300000) {
       return interaction.reply({
         content: "❌ مكرر مرتين تحسبنا ماندري؟ لا تكرر",
         ephemeral: true
       });
     }
 
-    lastClaim[userId] = now;
+    await db.set(`lastClaim_${userId}`, now);
 
     let points = await db.get(`points_${userId}`) || 0;
     points++;
