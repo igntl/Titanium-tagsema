@@ -28,7 +28,7 @@ const ADMIN_ROLE = "1475334752436359320";
 let waitingAdd = {};
 let waitingRemove = {};
 
-// 🏆 تحديث البورد (مضمون بدون مشاكل)
+// 🏆 تحديث البورد
 async function updateBoard() {
   const channel = client.channels.cache.get(CHANNEL_ID);
   if (!channel) return;
@@ -56,7 +56,6 @@ async function updateBoard() {
   try {
     if (messageId) {
       const msg = await channel.messages.fetch(messageId).catch(() => null);
-
       if (msg) {
         await msg.edit({ embeds: [embed] });
         return;
@@ -87,7 +86,7 @@ client.once("ready", () => {
   console.log(`✅ ${client.user.tag} شغال`);
 });
 
-// 📩 أوامر
+// 📩 الأوامر
 client.on("messageCreate", async (msg) => {
   if (msg.author.bot) return;
   if (msg.channel.id !== CHANNEL_ID) return;
@@ -136,6 +135,20 @@ client.on("messageCreate", async (msg) => {
 
     await db.set(`points_${user.id}`, points);
 
+    // 🔥 لوق الإضافة
+    const logChannel = client.channels.cache.get(LOG_CHANNEL);
+    if (logChannel) {
+      logChannel.send({
+        embeds: [
+          new EmbedBuilder()
+            .setColor("#3498db")
+            .setTitle("➕ إضافة نقاط")
+            .setDescription(`👑 الإدارة: <@${msg.author.id}>\n🎯 المستهدف: ${user}\n📊 العدد المضاف: ${amount}`)
+            .setTimestamp()
+        ]
+      });
+    }
+
     delete waitingAdd[msg.author.id];
 
     msg.delete().catch(() => {});
@@ -157,6 +170,20 @@ client.on("messageCreate", async (msg) => {
     if (points <= 0) await db.delete(`points_${user.id}`);
     else await db.set(`points_${user.id}`, points);
 
+    // 🔥 لوق الحذف
+    const logChannel = client.channels.cache.get(LOG_CHANNEL);
+    if (logChannel) {
+      logChannel.send({
+        embeds: [
+          new EmbedBuilder()
+            .setColor("#e74c3c")
+            .setTitle("➖ حذف نقاط")
+            .setDescription(`👑 الإدارة: <@${msg.author.id}>\n🎯 المستهدف: ${user}\n📊 العدد المحذوف: ${amount}`)
+            .setTimestamp()
+        ]
+      });
+    }
+
     delete waitingRemove[msg.author.id];
 
     msg.delete().catch(() => {});
@@ -164,7 +191,7 @@ client.on("messageCreate", async (msg) => {
   }
 });
 
-// 🎯 الأزرار (بدون تأخير ومضمون)
+// 🎯 الأزرار
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isButton()) return;
 
@@ -195,6 +222,7 @@ client.on("interactionCreate", async (interaction) => {
 
     await db.set(`points_${userId}`, points);
 
+    // 🔥 لوق الاستلام
     const logChannel = client.channels.cache.get(LOG_CHANNEL);
     if (logChannel) {
       logChannel.send({
