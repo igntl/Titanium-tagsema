@@ -1,22 +1,34 @@
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
-const { QuickDB } = require("quick.db");
+const {
+  Client,
+  GatewayIntentBits,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
+} = require("discord.js");
 
+const { QuickDB } = require("quick.db");
 const db = new QuickDB();
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ]
 });
 
-// ⚙️ عدل هنا
+// 🔥 إعداداتك
 const TOKEN = process.env.TOKEN;
-const CHANNEL_ID = "1483219896069525665"; // روم الاستلام
-const LOG_CHANNEL = "1490286354175758366"; // روم اللوق
-const ROLE_ID = "1495426762971283528"; // رتبة مسؤولي التقسيمات
-const ADMIN_ROLE = "1475334752436359320"; // رتبة الإدارة العليا
+const CHANNEL_ID = "1483219896069525665";
+const LOG_CHANNEL = "1490286354175758366";
+const ROLE_ID = "1495426762971283528";
+const ADMIN_ROLE = "1475334752436359320";
 
 let leaderboardMessageId = null;
 let lastClaim = {};
 
+// 🏆 تحديث البورد
 async function updateBoard(channel) {
   const data = await db.all();
 
@@ -50,24 +62,100 @@ async function updateBoard(channel) {
   }
 }
 
+// 🎛️ إرسال البانل
+async function sendPanel(channel) {
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId("claim")
+      .setLabel("استلام")
+      .setStyle(ButtonStyle.Success),
+
+    new ButtonBuilder()
+      .setCustomId("add")
+      .setLabel("إضافة")
+      .setStyle(ButtonStyle.Primary),
+
+    new ButtonBuilder()
+      .setCustomId("remove")
+      .setLabel("حذف")
+      .setStyle(ButtonStyle.Danger)
+  );
+
+  channel.send({ content: "لوحة التحكم", components: [row] });
+}
+
+// 🔥 أول تشغيل
+client.once("ready", async () => {
+  console.log(`✅ ${client.user.tag} شغال`);
+
+  const channel = client.channels.cache.get(CHANNEL_ID);
+  if (channel) {
+    sendPanel(channel);
+    updateBoard(channel);
+  }
+});
+
+// 📩 الأوامر
 client.on("messageCreate", async (msg) => {
   if (msg.author.bot) return;
 
-  // 👇 فقط الروم المحدد
-  if (msg.channel.id !== CHANNEL_ID) return;
+  // 🎛️ إرسال البانل
+  if (msg.content === "!panel") {
+    if (!msg.member.roles.cache.has(ADMIN_ROLE)) return;
 
-  // 👇 تحقق الرتبة
-  if (!msg.member.roles.cache.has(ROLE_ID)) return;
+    msg.delete().catch(() => {});
+    sendPanel(msg.channel);
+  }
 
-  const userId = msg.author.id;
+  // 🏆 عرض اللائحة
+  if (msg.content === "!lb") {
+    if (!msg.member.roles.cache.has(ADMIN_ROLE)) return;
+
+    updateBoard(msg.channel);
+  }
+
+  // ♻️ تصفير اللائحة
+  if (msg.content === "!clr") {
+    if (!msg.member.roles.cache.has(ADMIN_ROLE)) {
+      return msg.reply("❌ للإدارة فقط");
+    }
+
+    const all = await db.all();
+
+    for (const entry of all) {
+      if (entry.id.startsWith("points_")) {
+        await db.delete(entry.id);
+      }
+    }
+
+    leaderboardMessageId = null;
+
+    msg.channel.send("تم تصفير اللائحة");
+
+    updateBoard(msg.channel);
+  }
+});
+
+// 🎯 الأزرار
+client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isButton()) return;
+
+  const userId = interaction.user.id;
+  const member = interaction.member;
   const now = Date.now();
 
-  // 🎯 تسجيل استلام
-  if (msg.content === "!claim") {
+  // 🟢 استلام
+  if (interaction.customId === "claim") {
 
-    // ❌ منع التكرار
+    if (!member.roles.cache.has(ROLE_ID)) {
+      return interaction.reply({ content: "❌ ليس لديك صلاحية", ephemeral: true });
+    }
+
     if (lastClaim[userId] && now - lastClaim[userId] < 300000) {
-      return msg.reply("❌ مكرر مرتين تحسبنا ماندري؟ لا تكرر");
+      return interaction.reply({
+        content: "❌ مكرر مرتين تحسبنا ماندري؟ لا تكرر",
+        ephemeral: true
+      });
     }
 
     lastClaim[userId] = now;
@@ -77,88 +165,49 @@ client.on("messageCreate", async (msg) => {
 
     await db.set(`points_${userId}`, points);
 
-    msg.reply(`تم تسجيل التقسيمة لك\nعدد مرات الاستلام: ${points}`);
-
-    // 🟢 لوق
     const logChannel = client.channels.cache.get(LOG_CHANNEL);
     if (logChannel) {
       logChannel.send({
         embeds: [
           new EmbedBuilder()
             .setColor("#00ff99")
-            .setTitle("📥 تسجيل استلام تقسيمة")
-            .setDescription(`👤 <@${userId}>\n📊 العدد: ${points}`)
+            .setTitle("📥 تسجيل استلام")
+            .setDescription(`<@${userId}>\n📊 العدد: ${points}`)
             .setTimestamp()
         ]
       });
     }
 
-    updateBoard(msg.channel);
+    await interaction.deferUpdate();
+    updateBoard(client.channels.cache.get(CHANNEL_ID));
   }
 
-  // 👑 أوامر الإدارة
-  if (!msg.member.roles.cache.has(ADMIN_ROLE)) return;
-
-  // ➕ إضافة
-  if (msg.content.startsWith("!give")) {
-    const user = msg.mentions.users.first();
-    if (!user) return;
-
-    let points = await db.get(`points_${user.id}`) || 0;
-    points++;
-
-    await db.set(`points_${user.id}`, points);
-
-    msg.reply(`تمت الإضافة لـ ${user}`);
-    updateBoard(msg.channel);
-  }
-
-  // ➖ حذف
-  if (msg.content.startsWith("!remove")) {
-    const user = msg.mentions.users.first();
-    if (!user) return;
-
-    let points = await db.get(`points_${user.id}`) || 0;
-    points--;
-
-    if (points <= 0) await db.delete(`points_${user.id}`);
-    else await db.set(`points_${user.id}`, points);
-
-    msg.reply(`تم الحذف من ${user}`);
-    updateBoard(msg.channel);
-  }
-
-  // 🔘 زر الإدارة
-  if (msg.content === "!panel") {
-
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId("add").setLabel("➕ إضافة").setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId("remove").setLabel("➖ حذف").setStyle(ButtonStyle.Danger)
-    );
-
-    msg.channel.send({ content: "لوحة التحكم", components: [row] });
-  }
-
-});
-
-client.on("interactionCreate", async (interaction) => {
-  if (!interaction.isButton()) return;
-
-  if (!interaction.member.roles.cache.has(ADMIN_ROLE)) {
+  // 👑 إدارة
+  if (!member.roles.cache.has(ADMIN_ROLE)) {
     return interaction.reply({ content: "❌ للإدارة فقط", ephemeral: true });
   }
 
+  // ➕ إضافة
   if (interaction.customId === "add") {
-    interaction.reply({ content: "استخدم الأمر !give @user", ephemeral: true });
+    let points = await db.get(`points_${userId}`) || 0;
+    points++;
+    await db.set(`points_${userId}`, points);
+
+    await interaction.deferUpdate();
+    updateBoard(client.channels.cache.get(CHANNEL_ID));
   }
 
+  // ➖ حذف
   if (interaction.customId === "remove") {
-    interaction.reply({ content: "استخدم الأمر !remove @user", ephemeral: true });
-  }
-});
+    let points = await db.get(`points_${userId}`) || 0;
+    points--;
 
-client.once("ready", () => {
-  console.log(`✅ ${client.user.tag} شغال`);
+    if (points <= 0) await db.delete(`points_${userId}`);
+    else await db.set(`points_${userId}`, points);
+
+    await interaction.deferUpdate();
+    updateBoard(client.channels.cache.get(CHANNEL_ID));
+  }
 });
 
 client.login(TOKEN);
