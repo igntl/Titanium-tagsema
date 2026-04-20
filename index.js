@@ -18,7 +18,7 @@ const client = new Client({
   ]
 });
 
-// 🔥 إعداداتك (نفسها)
+// 🔥 إعداداتك
 const TOKEN = process.env.TOKEN;
 const CHANNEL_ID = "1495460515911172136";
 const LOG_CHANNEL = "1495466678136606942";
@@ -28,7 +28,7 @@ const ADMIN_ROLE = "1495462892026200104";
 let waitingAdd = {};
 let waitingRemove = {};
 
-// 🛡️ حماية + Queue
+// 🛡️ Queue + حماية
 let updating = false;
 
 async function updateBoardSafe() {
@@ -44,13 +44,12 @@ async function updateBoardSafe() {
   updating = false;
 }
 
-// 🏆 البورد (ثابتة)
+// 🏆 البورد
 async function updateBoard() {
   const channel = client.channels.cache.get(CHANNEL_ID);
   if (!channel) return;
 
-  const messageId = await db.get("leaderboardMessageId");
-  if (!messageId) return;
+  let messageId = await db.get("leaderboardMessageId");
 
   const data = await db.all();
 
@@ -70,13 +69,20 @@ async function updateBoard() {
     .setFooter({ text: "TITANIUM DIVISION SYSTEM" })
     .setTimestamp();
 
+  // 🔥 أول مرة فقط
+  if (!messageId) {
+    const msg = await channel.send({ embeds: [embed] });
+    await db.set("leaderboardMessageId", msg.id);
+    return;
+  }
+
+  // تحديث فقط
   try {
     const msg = await channel.messages.fetch(messageId).catch(() => null);
     if (!msg) return;
 
     await msg.edit({ embeds: [embed] });
-
-  } catch (err) {
+  } catch {
     console.log("❌ فشل تحديث البورد");
   }
 }
@@ -92,7 +98,7 @@ function sendPanel(channel) {
   channel.send({ content: "لوحة التحكم", components: [row] });
 }
 
-// 🛡️ منع الكراش
+// 🛡️ حماية من الكراش
 process.on("unhandledRejection", (err) => {
   console.log("Unhandled Rejection:", err);
 });
@@ -115,15 +121,7 @@ client.on("messageCreate", async (msg) => {
 
   if (msg.content === "!lb") {
     if (!msg.member.roles.cache.has(ADMIN_ROLE)) return;
-
-    let id = await db.get("leaderboardMessageId");
-
-    if (!id) {
-      const sent = await msg.channel.send({ content: "جارٍ إنشاء البورد..." });
-      await db.set("leaderboardMessageId", sent.id);
-    }
-
-    updateBoardSafe();
+    updateBoardSafe(); // 🔥 بدون أي رسالة إنشاء
   }
 
   if (msg.content === "!clr") {
