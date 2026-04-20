@@ -18,7 +18,7 @@ const client = new Client({
   ]
 });
 
-// 🔥 إعداداتك
+// 🔥 إعداداتك (نفسها)
 const TOKEN = process.env.TOKEN;
 const CHANNEL_ID = "1495460515911172136";
 const LOG_CHANNEL = "1495466678136606942";
@@ -28,12 +28,29 @@ const ADMIN_ROLE = "1495462892026200104";
 let waitingAdd = {};
 let waitingRemove = {};
 
-// 🏆 البورد (ثابتة 100%)
+// 🛡️ حماية + Queue
+let updating = false;
+
+async function updateBoardSafe() {
+  if (updating) return;
+  updating = true;
+
+  try {
+    await updateBoard();
+  } catch (e) {
+    console.log("❌ update error:", e);
+  }
+
+  updating = false;
+}
+
+// 🏆 البورد (ثابتة)
 async function updateBoard() {
   const channel = client.channels.cache.get(CHANNEL_ID);
   if (!channel) return;
 
-  let messageId = await db.get("leaderboardMessageId");
+  const messageId = await db.get("leaderboardMessageId");
+  if (!messageId) return;
 
   const data = await db.all();
 
@@ -53,19 +70,12 @@ async function updateBoard() {
     .setFooter({ text: "TITANIUM DIVISION SYSTEM" })
     .setTimestamp();
 
-  // أول مرة فقط
-  if (!messageId) {
-    const msg = await channel.send({ embeds: [embed] });
-    await db.set("leaderboardMessageId", msg.id);
-    return;
-  }
-
-  // تحديث فقط (بدون إرسال جديد)
   try {
-    const msg = await channel.messages.fetch(messageId);
-    if (msg) {
-      await msg.edit({ embeds: [embed] });
-    }
+    const msg = await channel.messages.fetch(messageId).catch(() => null);
+    if (!msg) return;
+
+    await msg.edit({ embeds: [embed] });
+
   } catch (err) {
     console.log("❌ فشل تحديث البورد");
   }
@@ -81,6 +91,11 @@ function sendPanel(channel) {
 
   channel.send({ content: "لوحة التحكم", components: [row] });
 }
+
+// 🛡️ منع الكراش
+process.on("unhandledRejection", (err) => {
+  console.log("Unhandled Rejection:", err);
+});
 
 // تشغيل
 client.once("ready", () => {
@@ -100,7 +115,15 @@ client.on("messageCreate", async (msg) => {
 
   if (msg.content === "!lb") {
     if (!msg.member.roles.cache.has(ADMIN_ROLE)) return;
-    updateBoard();
+
+    let id = await db.get("leaderboardMessageId");
+
+    if (!id) {
+      const sent = await msg.channel.send({ content: "جارٍ إنشاء البورد..." });
+      await db.set("leaderboardMessageId", sent.id);
+    }
+
+    updateBoardSafe();
   }
 
   if (msg.content === "!clr") {
@@ -114,14 +137,11 @@ client.on("messageCreate", async (msg) => {
     }
 
     await db.delete("leaderboardMessageId");
-
     msg.channel.send("تم تصفير اللائحة");
   }
 
   // ➕ إضافة
   if (waitingAdd[msg.author.id]) {
-    if (!msg.member.roles.cache.has(ADMIN_ROLE)) return;
-
     const user = msg.mentions.users.first();
     const amount = parseInt(msg.content.split(" ")[1]);
 
@@ -132,28 +152,23 @@ client.on("messageCreate", async (msg) => {
 
     await db.set(`points_${user.id}`, points);
 
-    const logChannel = client.channels.cache.get(LOG_CHANNEL);
-    if (logChannel) {
-      logChannel.send({
-        embeds: [
-          new EmbedBuilder()
-            .setColor("#3498db")
-            .setTitle("➕ إضافة نقاط")
-            .setDescription(`👑 الإدارة: <@${msg.author.id}>\n🎯 المستهدف: ${user}\n📊 العدد: ${amount}`)
-            .setTimestamp()
-        ]
-      });
-    }
+    client.channels.cache.get(LOG_CHANNEL)?.send({
+      embeds: [
+        new EmbedBuilder()
+          .setColor("#3498db")
+          .setTitle("➕ إضافة نقاط")
+          .setDescription(`👑 الإدارة: <@${msg.author.id}>\n🎯 المستهدف: ${user}\n📊 العدد: ${amount}`)
+          .setTimestamp()
+      ]
+    });
 
     delete waitingAdd[msg.author.id];
     msg.delete().catch(() => {});
-    updateBoard();
+    updateBoardSafe();
   }
 
   // ➖ حذف
   if (waitingRemove[msg.author.id]) {
-    if (!msg.member.roles.cache.has(ADMIN_ROLE)) return;
-
     const user = msg.mentions.users.first();
     const amount = parseInt(msg.content.split(" ")[1]);
 
@@ -165,22 +180,19 @@ client.on("messageCreate", async (msg) => {
     if (points <= 0) await db.delete(`points_${user.id}`);
     else await db.set(`points_${user.id}`, points);
 
-    const logChannel = client.channels.cache.get(LOG_CHANNEL);
-    if (logChannel) {
-      logChannel.send({
-        embeds: [
-          new EmbedBuilder()
-            .setColor("#e74c3c")
-            .setTitle("➖ حذف نقاط")
-            .setDescription(`👑 الإدارة: <@${msg.author.id}>\n🎯 المستهدف: ${user}\n📊 العدد: ${amount}`)
-            .setTimestamp()
-        ]
-      });
-    }
+    client.channels.cache.get(LOG_CHANNEL)?.send({
+      embeds: [
+        new EmbedBuilder()
+          .setColor("#e74c3c")
+          .setTitle("➖ حذف نقاط")
+          .setDescription(`👑 الإدارة: <@${msg.author.id}>\n🎯 المستهدف: ${user}\n📊 العدد: ${amount}`)
+          .setTimestamp()
+      ]
+    });
 
     delete waitingRemove[msg.author.id];
     msg.delete().catch(() => {});
-    updateBoard();
+    updateBoardSafe();
   }
 });
 
@@ -192,7 +204,7 @@ client.on("interactionCreate", async (interaction) => {
   const member = interaction.member;
   const now = Date.now();
 
-  // استلام
+  // 🟢 استلام
   if (interaction.customId === "claim") {
 
     if (!member.roles.cache.has(ROLE_ID)) {
@@ -214,24 +226,21 @@ client.on("interactionCreate", async (interaction) => {
 
     await db.set(`points_${userId}`, points);
 
-    const logChannel = client.channels.cache.get(LOG_CHANNEL);
-    if (logChannel) {
-      logChannel.send({
-        embeds: [
-          new EmbedBuilder()
-            .setColor("#00ff99")
-            .setTitle("📥 تسجيل استلام")
-            .setDescription(`<@${userId}>\n📊 العدد: ${points}`)
-            .setTimestamp()
-        ]
-      });
-    }
+    client.channels.cache.get(LOG_CHANNEL)?.send({
+      embeds: [
+        new EmbedBuilder()
+          .setColor("#00ff99")
+          .setTitle("📥 تسجيل استلام")
+          .setDescription(`<@${userId}>\n📊 العدد: ${points}`)
+          .setTimestamp()
+      ]
+    });
 
     await interaction.deferUpdate();
-    updateBoard();
+    updateBoardSafe();
   }
 
-  // إدارة فقط
+  // 🔴 إدارة فقط
   if (!member.roles.cache.has(ADMIN_ROLE)) {
     return interaction.reply({ content: "❌ للإدارة فقط", ephemeral: true });
   }
