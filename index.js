@@ -2,8 +2,7 @@ const {
   Client,
   GatewayIntentBits,
   ActionRowBuilder,
-  StringSelectMenuBuilder,
-  EmbedBuilder
+  StringSelectMenuBuilder
 } = require("discord.js");
 
 const fs = require("fs");
@@ -40,19 +39,6 @@ function save(data) {
   fs.writeFileSync(FILE, JSON.stringify(data, null, 2));
 }
 
-// ================= الوقت =================
-function formatTime() {
-  const now = new Date();
-
-  return {
-    date: now.toLocaleDateString("ar-SA"),
-    time: now.toLocaleTimeString("ar-SA", {
-      hour: "2-digit",
-      minute: "2-digit"
-    })
-  };
-}
-
 // ================= اللوحة =================
 function buildBoard(data) {
 
@@ -69,10 +55,11 @@ function buildBoard(data) {
     });
   }
 
-  return new EmbedBuilder()
-    .setTitle("🏆 لوحة استلام التقسيمة")
-    .setDescription(text)
-    .setColor(0x00ff99);
+  return {
+    title: "🏆 لوحة استلام التقسيمة",
+    description: text,
+    color: 0x00ff99
+  };
 }
 
 // ================= تحديث اللوحة =================
@@ -90,23 +77,106 @@ async function updatePanel(guild) {
       { label: "حذف نقاط", value: "remove" }
     ]);
 
+  const embed = buildBoard(data);
+
   let msg;
 
   if (!data.panelId) {
     msg = await channel.send({
-      embeds: [buildBoard(data)],
+      embeds: [embed],
       components: [new ActionRowBuilder().addComponents(menu)]
     });
 
     data.panelId = msg.id;
     save(data);
+
   } else {
     msg = await channel.messages.fetch(data.panelId);
+
     await msg.edit({
-      embeds: [buildBoard(data)],
+      embeds: [embed],
       components: [new ActionRowBuilder().addComponents(menu)]
     });
   }
+}
+
+// ================= الوقت =================
+function formatTime() {
+  const now = new Date();
+
+  return {
+    date: now.toLocaleDateString("ar-SA"),
+    time: now.toLocaleTimeString("ar-SA", {
+      hour: "2-digit",
+      minute: "2-digit"
+    })
+  };
+}
+
+// ================= لوق احترافي (نفس الصورة) =================
+async function sendLog(type, actor, target, amount, guild) {
+
+  const log = await guild.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
+
+  const t = formatTime();
+
+  let title = "";
+  let color = 0x00ff99;
+
+  if (type === "claim") {
+    title = "📥 تسجيل استلام";
+    color = 0x00ff99;
+  }
+
+  if (type === "add") {
+    title = "➕ إضافة نقاط";
+    color = 0x2ecc71;
+  }
+
+  if (type === "remove") {
+    title = "➖ حذف نقاط";
+    color = 0xe74c3c;
+  }
+
+  const member = await guild.members.fetch(target).catch(() => null);
+  const name = member?.displayName || `<@${target}>`;
+
+  log?.send({
+    embeds: [
+      {
+        title: title,
+        color: color,
+
+        fields: [
+          {
+            name: "🎮 اللاعب",
+            value: `<@${actor}>`,
+            inline: true
+          },
+          {
+            name: "🎯 الشخص",
+            value: `${name}`,
+            inline: true
+          },
+          {
+            name: "⭐ العدد",
+            value: `${amount || 1}`,
+            inline: true
+          },
+          {
+            name: "📅 التاريخ",
+            value: `${t.date}`,
+            inline: true
+          },
+          {
+            name: "⏰ الوقت",
+            value: `${t.time}`,
+            inline: true
+          }
+        ]
+      }
+    ]
+  });
 }
 
 // ================= تشغيل =================
@@ -114,7 +184,7 @@ client.once("ready", () => {
   console.log("Bot Ready");
 });
 
-// ================= تشغيل اللوحة =================
+// ================= لوحة =================
 client.on("messageCreate", async (message) => {
 
   if (message.author.bot) return;
@@ -125,7 +195,7 @@ client.on("messageCreate", async (message) => {
   }
 });
 
-// ================= حالات الإدارة =================
+// ================= إدارة الحالات =================
 const adminMode = new Map();
 
 // ================= التفاعل =================
@@ -144,9 +214,12 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     const id = interaction.user.id;
+
     data.users[id] = (data.users[id] || 0) + 1;
 
     save(data);
+
+    await sendLog("claim", interaction.user.id, interaction.user.id, 1, interaction.guild);
 
     await interaction.deferUpdate();
     await updatePanel(interaction.guild);
@@ -162,7 +235,7 @@ client.on("interactionCreate", async (interaction) => {
     adminMode.set(interaction.user.id, interaction.values[0]);
 
     return interaction.reply({
-      content: "اكتب الآن: @الشخص + العدد (مثال: @user 5)",
+      content: "اكتب في الشات: @الشخص + العدد (مثال: @user 5)",
       ephemeral: true
     });
   }
@@ -185,58 +258,16 @@ client.on("messageCreate", async (message) => {
 
   if (!data.users[user.id]) data.users[user.id] = 0;
 
-  const member = await message.guild.members.fetch(user.id).catch(() => null);
-  const name = member?.displayName || member?.user?.username || `<@${user.id}>`;
-
-  const log = await message.guild.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
-
-  const t = formatTime();
-
-  // ================= استلام =================
-  if (mode === "claim") return;
-
-  // ================= إضافة =================
   if (mode === "add") {
-
     data.users[user.id] += amount;
-
-    log?.send({
-      embeds: [
-        new EmbedBuilder()
-          .setTitle("📥 استلام التقسيمة")
-          .setDescription(
-            `👤 اللاعب: <@${message.author.id}>\n` +
-            `🎯 الشخص: ${name}\n` +
-            `⭐ العدد: ${amount}\n\n` +
-            `📅 التاريخ: ${t.date}\n` +
-            `⏰ الوقت: ${t.time}`
-          )
-          .setColor(0x00ff99)
-      ]
-    });
+    await sendLog("add", message.author.id, user.id, amount, message.guild);
   }
 
-  // ================= حذف =================
   if (mode === "remove") {
-
     data.users[user.id] -= amount;
-
     if (data.users[user.id] <= 0) delete data.users[user.id];
 
-    log?.send({
-      embeds: [
-        new EmbedBuilder()
-          .setTitle("🚫 حذف نقاط")
-          .setDescription(
-            `👤 اللاعب: <@${message.author.id}>\n` +
-            `🎯 الشخص: ${name}\n` +
-            `⭐ العدد: ${amount}\n\n` +
-            `📅 التاريخ: ${t.date}\n` +
-            `⏰ الوقت: ${t.time}`
-          )
-          .setColor(0xe74c3c)
-      ]
-    });
+    await sendLog("remove", message.author.id, user.id, amount, message.guild);
   }
 
   save(data);
