@@ -43,7 +43,7 @@ function save(data) {
   fs.writeFileSync(FILE, JSON.stringify(data, null, 2));
 }
 
-// ================= اسم احترافي =================
+// ================= الاسم الحقيقي =================
 function getName(member, id) {
   return member?.displayName || member?.user?.username || `<@${id}>`;
 }
@@ -132,7 +132,7 @@ client.on("interactionCreate", async (interaction) => {
   if (interaction.values[0] === "claim") {
 
     if (!interaction.member.roles.cache.has(DIV_ROLE)) {
-      return interaction.reply({ content: "❌ غير مصرح لك", ephemeral: true });
+      return interaction.reply({ content: "❌ غير مصرح", ephemeral: true });
     }
 
     const id = interaction.user.id;
@@ -165,11 +165,16 @@ client.on("interactionCreate", async (interaction) => {
       .setCustomId("select_user")
       .setPlaceholder("اختر الشخص")
       .addOptions(
-        users.map(([id, count]) => ({
-          label: `User`,
-          description: `النقاط: ${count}`,
-          value: id
-        }))
+        users.map(([id, count]) => {
+
+          const member = guild.members.cache.get(id);
+
+          return {
+            label: member?.displayName || member?.user?.username || "User",
+            description: `النقاط: ${count}`,
+            value: id
+          };
+        })
       );
 
     return interaction.reply({
@@ -199,7 +204,7 @@ client.on("interactionCreate", async (interaction) => {
   }
 });
 
-// ================= تنفيذ =================
+// ================= تنفيذ الإضافة / الحذف =================
 client.on("interactionCreate", async (interaction) => {
 
   if (!interaction.isModalSubmit()) return;
