@@ -18,7 +18,7 @@ const client = new Client({
   ]
 });
 
-// ================= IDs =================
+// ================== IDs ==================
 const TOKEN = process.env.TOKEN;
 
 const PANEL_CHANNEL_ID = "1495460515911172136";
@@ -27,9 +27,9 @@ const LOG_CHANNEL_ID = "1495466678136606942";
 const ADMIN_ROLE = "1495462892026200104";
 const DIVISION_ROLE = "1360011347768774796";
 
-// ================= DATA =================
 const DATA_FILE = "./data.json";
 
+// ================== DATA ==================
 function load() {
   if (!fs.existsSync(DATA_FILE)) {
     fs.writeFileSync(DATA_FILE, JSON.stringify({
@@ -44,7 +44,7 @@ function save(data) {
   fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
 }
 
-// ================= اللوحة =================
+// ================== بناء اللوحة ==================
 function buildBoard(data) {
 
   const sorted = Object.entries(data.users || {})
@@ -61,12 +61,12 @@ function buildBoard(data) {
   }
 
   return new EmbedBuilder()
-    .setTitle("🏆 استلام التقسيمة")
+    .setTitle("🏆 استلام التقسيمه")
     .setDescription(text)
     .setColor(0xFFD700);
 }
 
-// ================= تحديث اللوحة =================
+// ================== تحديث اللوحة ==================
 async function updateBoard(guild) {
 
   const data = load();
@@ -76,9 +76,9 @@ async function updateBoard(guild) {
 
   const menu = new StringSelectMenuBuilder()
     .setCustomId("panel")
-    .setPlaceholder("استلام التقسيمة")
+    .setPlaceholder("لوحة استلام التقسيمه")
     .addOptions([
-      { label: "استلام التقسيمة", value: "claim" },
+      { label: "استلام التقسيمه", value: "claim" },
       { label: "إضافة (إدارة)", value: "add" },
       { label: "حذف (إدارة)", value: "remove" }
     ]);
@@ -86,24 +86,54 @@ async function updateBoard(guild) {
   const row = new ActionRowBuilder().addComponents(menu);
 
   if (!data.messageId) {
-    const msg = await channel.send({ embeds: [embed], components: [row] });
+    const msg = await channel.send({
+      embeds: [embed],
+      components: [row]
+    });
+
     data.messageId = msg.id;
     save(data);
   } else {
-    const msg = await channel.messages.fetch(data.messageId);
-    await msg.edit({ embeds: [embed], components: [row] });
+    try {
+      const msg = await channel.messages.fetch(data.messageId);
+      await msg.edit({
+        embeds: [embed],
+        components: [row]
+      });
+    } catch {
+      const msg = await channel.send({
+        embeds: [embed],
+        components: [row]
+      });
+
+      data.messageId = msg.id;
+      save(data);
+    }
   }
 }
 
-// ================= تشغيل تلقائي =================
+// ================== تشغيل ==================
 client.once("ready", () => {
   console.log("Bot Ready");
-
-  const guild = client.guilds.cache.first();
-  if (guild) updateBoard(guild);
 });
 
-// ================= التفاعل =================
+// ================== أمر إنشاء اللوحة ==================
+client.on("messageCreate", async (message) => {
+
+  if (message.author.bot) return;
+
+  if (message.content !== "!39fpanel") return;
+
+  const data = load();
+
+  const guild = message.guild;
+
+  await updateBoard(guild);
+
+  return message.reply("تم إنشاء لوحة الاستلام ✅");
+});
+
+// ================== التفاعل ==================
 client.on("interactionCreate", async (interaction) => {
 
   if (!interaction.isStringSelectMenu()) return;
