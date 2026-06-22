@@ -44,6 +44,16 @@ function save(data) {
   fs.writeFileSync(FILE, JSON.stringify(data, null, 2));
 }
 
+// ================= اسم عرض صحيح =================
+async function getDisplayName(guild, id) {
+  try {
+    const member = await guild.members.fetch(id);
+    return member.nickname || member.user.username;
+  } catch {
+    return id;
+  }
+}
+
 // ================= اللوحة =================
 function buildBoard(data) {
 
@@ -52,11 +62,11 @@ function buildBoard(data) {
 
   let desc = "";
 
-  if (!sorted.length) {
-    desc = "لا يوجد مستلمين";
-  } else {
+  if (!sorted.length) desc = "لا يوجد مستلمين";
+
+  else {
     sorted.forEach(([id, count], i) => {
-      desc += `${i + 1}- <@${id}> — ${count} استلام\n`;
+      desc += `${i + 1}- <@${id}> — ${count}\n`;
     });
   }
 
@@ -95,23 +105,23 @@ async function updatePanel(guild) {
   }
 }
 
-// ================= تشغيل اللوحة =================
+// ================= تشغيل =================
 client.once("ready", () => {
   console.log("Bot Ready");
 });
 
-// ================= أمر إنشاء اللوحة =================
+// ================= إنشاء اللوحة =================
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
   if (message.content === "!39fpanel") {
     await updatePanel(message.guild);
-    return message.reply("تم إنشاء لوحة الاستلام ✅");
+    return message.reply("تم إنشاء اللوحة ✅");
   }
 });
 
-// ================= تخزين حالات الإدارة =================
-const adminStep = new Map();
+// ================= حالات =================
+const adminAction = new Map();
 const selectedUser = new Map();
 
 // ================= التفاعل =================
@@ -128,7 +138,7 @@ client.on("interactionCreate", async (interaction) => {
   if (interaction.values[0] === "claim") {
 
     if (!interaction.member.roles.cache.has(DIV_ROLE)) {
-      return interaction.reply({ content: "❌ غير مصرح لك", ephemeral: true });
+      return interaction.reply({ content: "❌ غير مصرح", ephemeral: true });
     }
 
     const id = interaction.user.id;
@@ -139,17 +149,17 @@ client.on("interactionCreate", async (interaction) => {
     save(data);
     await updatePanel(guild);
 
-    return interaction.reply({ content: "تم تسجيل الاستلام ✅", ephemeral: true });
+    return interaction.reply({ content: "تم التسجيل ✅", ephemeral: true });
   }
 
-  // ================= اختيار إضافة أو حذف =================
+  // ================= add / remove =================
   if (interaction.values[0] === "add" || interaction.values[0] === "remove") {
 
     if (!interaction.member.roles.cache.has(ADMIN_ROLE)) {
       return interaction.reply({ content: "❌ للإدارة فقط", ephemeral: true });
     }
 
-    adminStep.set(interaction.user.id, interaction.values[0]);
+    adminAction.set(interaction.user.id, interaction.values[0]);
 
     const users = Object.entries(data.users || {});
 
@@ -175,7 +185,7 @@ client.on("interactionCreate", async (interaction) => {
     });
   }
 
-  // ================= اختيار الشخص =================
+  // ================= اختيار شخص =================
   if (interaction.customId === "select_user") {
 
     selectedUser.set(interaction.user.id, interaction.values[0]);
@@ -185,7 +195,7 @@ client.on("interactionCreate", async (interaction) => {
       .setTitle("تعديل النقاط");
 
     const input = new TextInputBuilder()
-      .setCustomId("points")
+      .setCustomId("amount")
       .setLabel("عدد النقاط")
       .setStyle(TextInputStyle.Short);
 
@@ -195,7 +205,7 @@ client.on("interactionCreate", async (interaction) => {
   }
 });
 
-// ================= تنفيذ الإضافة / الحذف =================
+// ================= تنفيذ =================
 client.on("interactionCreate", async (interaction) => {
 
   if (!interaction.isModalSubmit()) return;
@@ -203,42 +213,47 @@ client.on("interactionCreate", async (interaction) => {
 
   const data = load();
 
-  const adminAction = adminStep.get(interaction.user.id);
-  const targetUser = selectedUser.get(interaction.user.id);
+  const action = adminAction.get(interaction.user.id);
+  const target = selectedUser.get(interaction.user.id);
+  const amount = parseInt(interaction.fields.getTextInputValue("amount"));
 
-  const amount = parseInt(interaction.fields.getTextInputValue("points"));
-
-  if (!adminAction || !targetUser || isNaN(amount)) {
-    return interaction.reply({ content: "خطأ في العملية", ephemeral: true });
+  if (!action || !target || isNaN(amount)) {
+    return interaction.reply({ content: "خطأ", ephemeral: true });
   }
 
-  if (!data.users[targetUser]) data.users[targetUser] = 0;
+  if (!data.users[target]) data.users[target] = 0;
 
   const log = interaction.guild.channels.cache.get(LOG_CHANNEL_ID);
 
-  if (adminAction === "add") {
-    data.users[targetUser] += amount;
+  // ================= اسم فعلي (نك نيم) =================
+  const member = await interaction.guild.members.fetch(target).catch(() => null);
+  const name =
+    member?.nickname ||
+    member?.user.username ||
+    `<@${target}>`;
+
+  if (action === "add") {
+    data.users[target] += amount;
 
     log?.send({
       embeds: [
         new EmbedBuilder()
           .setTitle("➕ إضافة نقاط")
-          .setDescription(`👤 الإداري: <@${interaction.user.id}>\n🎯 المستخدم: <@${targetUser}>\n⭐ العدد: ${amount}`)
+          .setDescription(`👤 الإداري: <@${interaction.user.id}>\n🎯 الشخص: ${name}\n⭐ العدد: ${amount}`)
           .setColor(0x00ff00)
       ]
     });
   }
 
-  if (adminAction === "remove") {
-    data.users[targetUser] -= amount;
-
-    if (data.users[targetUser] <= 0) delete data.users[targetUser];
+  if (action === "remove") {
+    data.users[target] -= amount;
+    if (data.users[target] <= 0) delete data.users[target];
 
     log?.send({
       embeds: [
         new EmbedBuilder()
           .setTitle("➖ حذف نقاط")
-          .setDescription(`👤 الإداري: <@${interaction.user.id}>\n🎯 المستخدم: <@${targetUser}>\n⭐ العدد: ${amount}`)
+          .setDescription(`👤 الإداري: <@${interaction.user.id}>\n🎯 الشخص: ${name}\n⭐ العدد: ${amount}`)
           .setColor(0xff0000)
       ]
     });
@@ -247,7 +262,7 @@ client.on("interactionCreate", async (interaction) => {
   save(data);
   await updatePanel(interaction.guild);
 
-  adminStep.delete(interaction.user.id);
+  adminAction.delete(interaction.user.id);
   selectedUser.delete(interaction.user.id);
 
   return interaction.reply({ content: "تم التنفيذ ✅", ephemeral: true });
