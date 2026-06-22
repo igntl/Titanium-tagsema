@@ -4,7 +4,6 @@ const {
   ActionRowBuilder,
   StringSelectMenuBuilder,
   EmbedBuilder,
-  PermissionsBitField,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle
@@ -44,14 +43,9 @@ function save(data) {
   fs.writeFileSync(FILE, JSON.stringify(data, null, 2));
 }
 
-// ================= اسم عرض صحيح =================
-async function getDisplayName(guild, id) {
-  try {
-    const member = await guild.members.fetch(id);
-    return member.nickname || member.user.username;
-  } catch {
-    return id;
-  }
+// ================= اسم احترافي =================
+function getName(member, id) {
+  return member?.displayName || member?.user?.username || `<@${id}>`;
 }
 
 // ================= اللوحة =================
@@ -86,11 +80,11 @@ async function updatePanel(guild) {
 
   const menu = new StringSelectMenuBuilder()
     .setCustomId("panel")
-    .setPlaceholder("استلام التقسيمة / إدارة")
+    .setPlaceholder("لوحة التقسيمة")
     .addOptions([
       { label: "استلام التقسيمة", value: "claim" },
-      { label: "إضافة نقاط (إدارة)", value: "add" },
-      { label: "حذف نقاط (إدارة)", value: "remove" }
+      { label: "إضافة نقاط", value: "add" },
+      { label: "حذف نقاط", value: "remove" }
     ]);
 
   const row = new ActionRowBuilder().addComponents(menu);
@@ -112,6 +106,7 @@ client.once("ready", () => {
 
 // ================= إنشاء اللوحة =================
 client.on("messageCreate", async (message) => {
+
   if (message.author.bot) return;
 
   if (message.content === "!39fpanel") {
@@ -131,14 +126,13 @@ client.on("interactionCreate", async (interaction) => {
   if (interaction.customId !== "panel") return;
 
   const data = load();
-
   const guild = interaction.guild;
 
   // ================= استلام =================
   if (interaction.values[0] === "claim") {
 
     if (!interaction.member.roles.cache.has(DIV_ROLE)) {
-      return interaction.reply({ content: "❌ غير مصرح", ephemeral: true });
+      return interaction.reply({ content: "❌ غير مصرح لك", ephemeral: true });
     }
 
     const id = interaction.user.id;
@@ -147,12 +141,12 @@ client.on("interactionCreate", async (interaction) => {
     data.users[id] += 1;
 
     save(data);
-    await updatePanel(guild);
 
-    return interaction.reply({ content: "تم التسجيل ✅", ephemeral: true });
+    await interaction.deferUpdate();
+    await updatePanel(guild);
   }
 
-  // ================= add / remove =================
+  // ================= إدارة =================
   if (interaction.values[0] === "add" || interaction.values[0] === "remove") {
 
     if (!interaction.member.roles.cache.has(ADMIN_ROLE)) {
@@ -172,7 +166,7 @@ client.on("interactionCreate", async (interaction) => {
       .setPlaceholder("اختر الشخص")
       .addOptions(
         users.map(([id, count]) => ({
-          label: `@${id}`,
+          label: `User`,
           description: `النقاط: ${count}`,
           value: id
         }))
@@ -211,6 +205,8 @@ client.on("interactionCreate", async (interaction) => {
   if (!interaction.isModalSubmit()) return;
   if (interaction.customId !== "points_modal") return;
 
+  await interaction.deferReply({ ephemeral: true });
+
   const data = load();
 
   const action = adminAction.get(interaction.user.id);
@@ -218,19 +214,15 @@ client.on("interactionCreate", async (interaction) => {
   const amount = parseInt(interaction.fields.getTextInputValue("amount"));
 
   if (!action || !target || isNaN(amount)) {
-    return interaction.reply({ content: "خطأ", ephemeral: true });
+    return interaction.editReply("❌ خطأ في البيانات");
   }
 
   if (!data.users[target]) data.users[target] = 0;
 
-  const log = interaction.guild.channels.cache.get(LOG_CHANNEL_ID);
-
-  // ================= اسم فعلي (نك نيم) =================
   const member = await interaction.guild.members.fetch(target).catch(() => null);
-  const name =
-    member?.nickname ||
-    member?.user.username ||
-    `<@${target}>`;
+  const name = getName(member, target);
+
+  const log = await interaction.guild.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
 
   if (action === "add") {
     data.users[target] += amount;
@@ -239,7 +231,9 @@ client.on("interactionCreate", async (interaction) => {
       embeds: [
         new EmbedBuilder()
           .setTitle("➕ إضافة نقاط")
-          .setDescription(`👤 الإداري: <@${interaction.user.id}>\n🎯 الشخص: ${name}\n⭐ العدد: ${amount}`)
+          .setDescription(
+            `👤 الإداري: <@${interaction.user.id}>\n🎯 الشخص: ${name}\n⭐ العدد: ${amount}`
+          )
           .setColor(0x00ff00)
       ]
     });
@@ -247,25 +241,29 @@ client.on("interactionCreate", async (interaction) => {
 
   if (action === "remove") {
     data.users[target] -= amount;
+
     if (data.users[target] <= 0) delete data.users[target];
 
     log?.send({
       embeds: [
         new EmbedBuilder()
           .setTitle("➖ حذف نقاط")
-          .setDescription(`👤 الإداري: <@${interaction.user.id}>\n🎯 الشخص: ${name}\n⭐ العدد: ${amount}`)
+          .setDescription(
+            `👤 الإداري: <@${interaction.user.id}>\n🎯 الشخص: ${name}\n⭐ العدد: ${amount}`
+          )
           .setColor(0xff0000)
       ]
     });
   }
 
   save(data);
+
   await updatePanel(interaction.guild);
 
   adminAction.delete(interaction.user.id);
   selectedUser.delete(interaction.user.id);
 
-  return interaction.reply({ content: "تم التنفيذ ✅", ephemeral: true });
+  return interaction.editReply("✅ تم التنفيذ");
 });
 
 client.login(TOKEN);
