@@ -16,6 +16,7 @@ const client = new Client({
   ]
 });
 
+// ================= IDS =================
 const TOKEN = process.env.TOKEN;
 
 const PANEL_CHANNEL_ID = "1495460515911172136";
@@ -24,6 +25,7 @@ const LOG_CHANNEL_ID = "1495466678136606942";
 const ADMIN_ROLE = "1495462892026200104";
 const DIV_ROLE = "1360011347768774796";
 
+// ================= DATA =================
 const FILE = "./data.json";
 
 function load() {
@@ -37,36 +39,10 @@ function save(data) {
   fs.writeFileSync(FILE, JSON.stringify(data, null, 2));
 }
 
-// ================= SMART DATE =================
-function getSmartDate() {
-  const now = new Date();
-
-  const time = now.toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: true
-  });
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const target = new Date(now);
-  target.setHours(0, 0, 0, 0);
-
-  const diff = Math.floor((today - target) / (1000 * 60 * 60 * 24));
-
-  let date;
-
-  if (diff === 0) date = "Today";
-  else if (diff === 1) date = "Yesterday";
-  else date = now.toLocaleDateString("en-GB");
-
-  return { date, time };
-}
-
 // ================= PANEL =================
 function buildBoard(data) {
-  const sorted = Object.entries(data.users || {}).sort((a, b) => b[1] - a[1]);
+  const sorted = Object.entries(data.users || {})
+    .sort((a, b) => b[1] - a[1]);
 
   let desc = sorted.length
     ? sorted.map((u, i) => `${i + 1}- <@${u[0]}> — ${u[1]}`).join("\n")
@@ -81,7 +57,6 @@ function buildBoard(data) {
 
 async function updatePanel(guild) {
   const data = load();
-
   const channel = await guild.channels.fetch(PANEL_CHANNEL_ID);
 
   const menu = new StringSelectMenuBuilder()
@@ -112,20 +87,47 @@ async function updatePanel(guild) {
   }
 }
 
-// ================= LOG =================
+// ================= SMART TIME =================
+function getTime() {
+  const now = new Date();
+
+  const time = now.toLocaleTimeString("en-US", {
+    timeZone: "Asia/Riyadh",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true
+  });
+
+  const today = new Date();
+  today.setHours(0,0,0,0);
+
+  const target = new Date(now);
+  target.setHours(0,0,0,0);
+
+  const diff = Math.floor((today - target) / (1000 * 60 * 60 * 24));
+
+  let date;
+
+  if (diff === 0) date = "Today";
+  else if (diff === 1) date = "Yesterday";
+  else date = now.toLocaleDateString("en-GB");
+
+  return { date, time };
+}
+
+// ================= LOG SYSTEM =================
 async function sendLog(type, admin, user, amount, guild) {
   const channel = await guild.channels.fetch(LOG_CHANNEL_ID);
 
   const member = await guild.members.fetch(user).catch(() => null);
 
-  const name = member ? member.displayName : `<@${user}>`;
+  const player = member ? `<@${user}>` : `<@${user}>`;
+  const adminTag = `<@${admin}>`;
 
-  const adminName = `<@${admin}>`;
-
-  const { date, time } = getSmartDate();
+  const { date, time } = getTime();
 
   let title = "";
-  let color = 0x00ff99;
+  let color = 0x2ecc71;
 
   if (type === "claim") {
     title = "📥 تسجيل استلام";
@@ -142,21 +144,31 @@ async function sendLog(type, admin, user, amount, guild) {
     color = 0xe74c3c;
   }
 
+  let fields = [];
+
+  // 🔥 IMPORTANT FIX
+  if (type === "claim") {
+    fields = [
+      { name: "🎮 اللاعب", value: player, inline: true },
+      { name: "⭐ العدد", value: `${amount}`, inline: true }
+    ];
+  } else {
+    fields = [
+      { name: "👤 الاداري", value: adminTag, inline: true },
+      { name: "🎮 اللاعب", value: player, inline: true },
+      { name: "⭐ العدد", value: `${amount}`, inline: true }
+    ];
+  }
+
   await channel.send({
     embeds: [
       {
         title,
         color,
-        description:
-`
-👤 الاداري: ${adminName}
-🎮 اللاعب: <@${user}>
-⭐ العدد: ${amount}
-
-\`\`\`
-${date} | ${time}
-\`\`\`
-        `.trim()
+        fields,
+        footer: {
+          text: `${date} | ${time}`
+        }
       }
     ]
   });
@@ -177,7 +189,7 @@ client.on("messageCreate", async (message) => {
   }
 });
 
-// ================= STATE =================
+// ================= ADMIN STATE =================
 const adminMode = new Map();
 
 // ================= INTERACTION =================
@@ -212,7 +224,7 @@ client.on("interactionCreate", async (interaction) => {
   }
 });
 
-// ================= CHAT =================
+// ================= CHAT ACTION =================
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
