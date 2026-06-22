@@ -41,15 +41,16 @@ function save(data) {
 }
 
 // ================= الوقت =================
-function getTime() {
-  return new Date().toLocaleString("ar-SA", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  });
+function formatTime() {
+  const now = new Date();
+
+  return {
+    date: now.toLocaleDateString("ar-SA"),
+    time: now.toLocaleTimeString("ar-SA", {
+      hour: "2-digit",
+      minute: "2-digit"
+    })
+  };
 }
 
 // ================= اللوحة =================
@@ -126,7 +127,6 @@ client.on("messageCreate", async (message) => {
 
 // ================= حالات الإدارة =================
 const adminMode = new Map();
-const targetUser = new Map();
 
 // ================= التفاعل =================
 client.on("interactionCreate", async (interaction) => {
@@ -162,7 +162,7 @@ client.on("interactionCreate", async (interaction) => {
     adminMode.set(interaction.user.id, interaction.values[0]);
 
     return interaction.reply({
-      content: "اكتب الآن في الشات: @الشخص + العدد (مثال: @user 5)",
+      content: "اكتب الآن: @الشخص + العدد (مثال: @user 5)",
       ephemeral: true
     });
   }
@@ -190,6 +190,11 @@ client.on("messageCreate", async (message) => {
 
   const log = await message.guild.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
 
+  const t = formatTime();
+
+  // ================= استلام =================
+  if (mode === "claim") return;
+
   // ================= إضافة =================
   if (mode === "add") {
 
@@ -198,14 +203,15 @@ client.on("messageCreate", async (message) => {
     log?.send({
       embeds: [
         new EmbedBuilder()
-          .setTitle("➕ إضافة نقاط")
+          .setTitle("📥 استلام التقسيمة")
           .setDescription(
-            `👤 الإداري: <@${message.author.id}>\n` +
+            `👤 اللاعب: <@${message.author.id}>\n` +
             `🎯 الشخص: ${name}\n` +
-            `⭐ العدد: ${amount}\n` +
-            `🕒 الوقت: ${getTime()}`
+            `⭐ العدد: ${amount}\n\n` +
+            `📅 التاريخ: ${t.date}\n` +
+            `⏰ الوقت: ${t.time}`
           )
-          .setColor(0x00ff00)
+          .setColor(0x00ff99)
       ]
     });
   }
@@ -220,14 +226,15 @@ client.on("messageCreate", async (message) => {
     log?.send({
       embeds: [
         new EmbedBuilder()
-          .setTitle("➖ حذف نقاط")
+          .setTitle("🚫 حذف نقاط")
           .setDescription(
-            `👤 الإداري: <@${message.author.id}>\n` +
+            `👤 اللاعب: <@${message.author.id}>\n` +
             `🎯 الشخص: ${name}\n` +
-            `⭐ العدد: ${amount}\n` +
-            `🕒 الوقت: ${getTime()}`
+            `⭐ العدد: ${amount}\n\n` +
+            `📅 التاريخ: ${t.date}\n` +
+            `⏰ الوقت: ${t.time}`
           )
-          .setColor(0xff0000)
+          .setColor(0xe74c3c)
       ]
     });
   }
