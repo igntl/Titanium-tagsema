@@ -4,7 +4,10 @@ const {
   ActionRowBuilder,
   StringSelectMenuBuilder,
   EmbedBuilder,
-  PermissionsBitField
+  PermissionsBitField,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle
 } = require("discord.js");
 
 const fs = require("fs");
@@ -18,56 +21,53 @@ const client = new Client({
   ]
 });
 
-// ================== IDs ==================
+// ================= IDs =================
 const TOKEN = process.env.TOKEN;
 
 const PANEL_CHANNEL_ID = "1495460515911172136";
 const LOG_CHANNEL_ID = "1495466678136606942";
 
 const ADMIN_ROLE = "1495462892026200104";
-const DIVISION_ROLE = "1360011347768774796";
+const DIV_ROLE = "1360011347768774796";
 
-const DATA_FILE = "./data.json";
+// ================= DATA =================
+const FILE = "./data.json";
 
-// ================== DATA ==================
 function load() {
-  if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({
-      users: {},
-      messageId: null
-    }, null, 2));
+  if (!fs.existsSync(FILE)) {
+    fs.writeFileSync(FILE, JSON.stringify({ users: {}, panelId: null }, null, 2));
   }
-  return JSON.parse(fs.readFileSync(DATA_FILE));
+  return JSON.parse(fs.readFileSync(FILE));
 }
 
 function save(data) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+  fs.writeFileSync(FILE, JSON.stringify(data, null, 2));
 }
 
-// ================== بناء اللوحة ==================
+// ================= اللوحة =================
 function buildBoard(data) {
 
   const sorted = Object.entries(data.users || {})
     .sort((a, b) => b[1] - a[1]);
 
-  let text = "🏆 لوحة استلام التقسيمات\n\n";
+  let desc = "";
 
   if (!sorted.length) {
-    text += "لا يوجد مستلمين حالياً";
+    desc = "لا يوجد مستلمين";
   } else {
     sorted.forEach(([id, count], i) => {
-      text += `${i + 1}- <@${id}> — ${count}\n`;
+      desc += `${i + 1}- <@${id}> — ${count} استلام\n`;
     });
   }
 
   return new EmbedBuilder()
-    .setTitle("🏆 استلام التقسيمه")
-    .setDescription(text)
-    .setColor(0xFFD700);
+    .setTitle("🏆 لوحة استلام التقسيمة")
+    .setDescription(desc)
+    .setColor(0x00ff99);
 }
 
-// ================== تحديث اللوحة ==================
-async function updateBoard(guild) {
+// ================= تحديث اللوحة =================
+async function updatePanel(guild) {
 
   const data = load();
   const channel = await guild.channels.fetch(PANEL_CHANNEL_ID);
@@ -76,64 +76,45 @@ async function updateBoard(guild) {
 
   const menu = new StringSelectMenuBuilder()
     .setCustomId("panel")
-    .setPlaceholder("لوحة استلام التقسيمه")
+    .setPlaceholder("استلام التقسيمة / إدارة")
     .addOptions([
-      { label: "استلام التقسيمه", value: "claim" },
-      { label: "إضافة (إدارة)", value: "add" },
-      { label: "حذف (إدارة)", value: "remove" }
+      { label: "استلام التقسيمة", value: "claim" },
+      { label: "إضافة نقاط (إدارة)", value: "add" },
+      { label: "حذف نقاط (إدارة)", value: "remove" }
     ]);
 
   const row = new ActionRowBuilder().addComponents(menu);
 
-  if (!data.messageId) {
-    const msg = await channel.send({
-      embeds: [embed],
-      components: [row]
-    });
-
-    data.messageId = msg.id;
+  if (!data.panelId) {
+    const msg = await channel.send({ embeds: [embed], components: [row] });
+    data.panelId = msg.id;
     save(data);
   } else {
-    try {
-      const msg = await channel.messages.fetch(data.messageId);
-      await msg.edit({
-        embeds: [embed],
-        components: [row]
-      });
-    } catch {
-      const msg = await channel.send({
-        embeds: [embed],
-        components: [row]
-      });
-
-      data.messageId = msg.id;
-      save(data);
-    }
+    const msg = await channel.messages.fetch(data.panelId);
+    await msg.edit({ embeds: [embed], components: [row] });
   }
 }
 
-// ================== تشغيل ==================
+// ================= تشغيل اللوحة =================
 client.once("ready", () => {
   console.log("Bot Ready");
 });
 
-// ================== أمر إنشاء اللوحة ==================
+// ================= أمر إنشاء اللوحة =================
 client.on("messageCreate", async (message) => {
-
   if (message.author.bot) return;
 
-  if (message.content !== "!39fpanel") return;
-
-  const data = load();
-
-  const guild = message.guild;
-
-  await updateBoard(guild);
-
-  return message.reply("تم إنشاء لوحة الاستلام ✅");
+  if (message.content === "!39fpanel") {
+    await updatePanel(message.guild);
+    return message.reply("تم إنشاء لوحة الاستلام ✅");
+  }
 });
 
-// ================== التفاعل ==================
+// ================= تخزين حالات الإدارة =================
+const adminStep = new Map();
+const selectedUser = new Map();
+
+// ================= التفاعل =================
 client.on("interactionCreate", async (interaction) => {
 
   if (!interaction.isStringSelectMenu()) return;
@@ -141,48 +122,135 @@ client.on("interactionCreate", async (interaction) => {
 
   const data = load();
 
-  const userId = interaction.user.id;
-  const member = interaction.member;
+  const guild = interaction.guild;
 
-  // ===== استلام =====
+  // ================= استلام =================
   if (interaction.values[0] === "claim") {
 
-    if (!member.roles.cache.has(DIVISION_ROLE)) {
+    if (!interaction.member.roles.cache.has(DIV_ROLE)) {
       return interaction.reply({ content: "❌ غير مصرح لك", ephemeral: true });
     }
 
-    if (!data.users[userId]) data.users[userId] = 0;
-    data.users[userId] += 1;
+    const id = interaction.user.id;
+
+    if (!data.users[id]) data.users[id] = 0;
+    data.users[id] += 1;
+
+    save(data);
+    await updatePanel(guild);
+
+    return interaction.reply({ content: "تم تسجيل الاستلام ✅", ephemeral: true });
   }
 
-  // ===== إضافة =====
-  if (interaction.values[0] === "add") {
+  // ================= اختيار إضافة أو حذف =================
+  if (interaction.values[0] === "add" || interaction.values[0] === "remove") {
 
-    if (!member.roles.cache.has(ADMIN_ROLE)) {
+    if (!interaction.member.roles.cache.has(ADMIN_ROLE)) {
       return interaction.reply({ content: "❌ للإدارة فقط", ephemeral: true });
     }
 
-    if (!data.users[userId]) data.users[userId] = 0;
-    data.users[userId] += 1;
-  }
+    adminStep.set(interaction.user.id, interaction.values[0]);
 
-  // ===== حذف =====
-  if (interaction.values[0] === "remove") {
+    const users = Object.entries(data.users || {});
 
-    if (!member.roles.cache.has(ADMIN_ROLE)) {
-      return interaction.reply({ content: "❌ للإدارة فقط", ephemeral: true });
+    if (!users.length) {
+      return interaction.reply({ content: "لا يوجد مستلمين", ephemeral: true });
     }
 
-    if (!data.users[userId]) data.users[userId] = 0;
-    data.users[userId] -= 1;
+    const menu = new StringSelectMenuBuilder()
+      .setCustomId("select_user")
+      .setPlaceholder("اختر الشخص")
+      .addOptions(
+        users.map(([id, count]) => ({
+          label: `@${id}`,
+          description: `النقاط: ${count}`,
+          value: id
+        }))
+      );
 
-    if (data.users[userId] <= 0) delete data.users[userId];
+    return interaction.reply({
+      content: "اختر الشخص:",
+      components: [new ActionRowBuilder().addComponents(menu)],
+      ephemeral: true
+    });
+  }
+
+  // ================= اختيار الشخص =================
+  if (interaction.customId === "select_user") {
+
+    selectedUser.set(interaction.user.id, interaction.values[0]);
+
+    const modal = new ModalBuilder()
+      .setCustomId("points_modal")
+      .setTitle("تعديل النقاط");
+
+    const input = new TextInputBuilder()
+      .setCustomId("points")
+      .setLabel("عدد النقاط")
+      .setStyle(TextInputStyle.Short);
+
+    modal.addComponents(new ActionRowBuilder().addComponents(input));
+
+    return interaction.showModal(modal);
+  }
+});
+
+// ================= تنفيذ الإضافة / الحذف =================
+client.on("interactionCreate", async (interaction) => {
+
+  if (!interaction.isModalSubmit()) return;
+  if (interaction.customId !== "points_modal") return;
+
+  const data = load();
+
+  const adminAction = adminStep.get(interaction.user.id);
+  const targetUser = selectedUser.get(interaction.user.id);
+
+  const amount = parseInt(interaction.fields.getTextInputValue("points"));
+
+  if (!adminAction || !targetUser || isNaN(amount)) {
+    return interaction.reply({ content: "خطأ في العملية", ephemeral: true });
+  }
+
+  if (!data.users[targetUser]) data.users[targetUser] = 0;
+
+  const log = interaction.guild.channels.cache.get(LOG_CHANNEL_ID);
+
+  if (adminAction === "add") {
+    data.users[targetUser] += amount;
+
+    log?.send({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("➕ إضافة نقاط")
+          .setDescription(`👤 الإداري: <@${interaction.user.id}>\n🎯 المستخدم: <@${targetUser}>\n⭐ العدد: ${amount}`)
+          .setColor(0x00ff00)
+      ]
+    });
+  }
+
+  if (adminAction === "remove") {
+    data.users[targetUser] -= amount;
+
+    if (data.users[targetUser] <= 0) delete data.users[targetUser];
+
+    log?.send({
+      embeds: [
+        new EmbedBuilder()
+          .setTitle("➖ حذف نقاط")
+          .setDescription(`👤 الإداري: <@${interaction.user.id}>\n🎯 المستخدم: <@${targetUser}>\n⭐ العدد: ${amount}`)
+          .setColor(0xff0000)
+      ]
+    });
   }
 
   save(data);
+  await updatePanel(interaction.guild);
 
-  await interaction.deferUpdate();
-  await updateBoard(interaction.guild);
+  adminStep.delete(interaction.user.id);
+  selectedUser.delete(interaction.user.id);
+
+  return interaction.reply({ content: "تم التنفيذ ✅", ephemeral: true });
 });
 
 client.login(TOKEN);
