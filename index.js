@@ -3,8 +3,7 @@ const {
   GatewayIntentBits,
   ActionRowBuilder,
   StringSelectMenuBuilder,
-  EmbedBuilder,
-  PermissionsBitField
+  EmbedBuilder
 } = require("discord.js");
 
 const fs = require("fs");
@@ -41,7 +40,19 @@ function save(data) {
   fs.writeFileSync(FILE, JSON.stringify(data, null, 2));
 }
 
-// ================= لوحة =================
+// ================= الوقت =================
+function getTime() {
+  return new Date().toLocaleString("ar-SA", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+}
+
+// ================= اللوحة =================
 function buildBoard(data) {
 
   const sorted = Object.entries(data.users || {})
@@ -50,6 +61,7 @@ function buildBoard(data) {
   let text = "";
 
   if (!sorted.length) text = "لا يوجد مستلمين";
+
   else {
     sorted.forEach(([id, count], i) => {
       text += `${i + 1}- <@${id}> — ${count}\n`;
@@ -77,16 +89,22 @@ async function updatePanel(guild) {
       { label: "حذف نقاط", value: "remove" }
     ]);
 
-  const embed = buildBoard(data);
-
   let msg;
+
   if (!data.panelId) {
-    msg = await channel.send({ embeds: [embed], components: [new ActionRowBuilder().addComponents(menu)] });
+    msg = await channel.send({
+      embeds: [buildBoard(data)],
+      components: [new ActionRowBuilder().addComponents(menu)]
+    });
+
     data.panelId = msg.id;
     save(data);
   } else {
     msg = await channel.messages.fetch(data.panelId);
-    await msg.edit({ embeds: [embed], components: [new ActionRowBuilder().addComponents(menu)] });
+    await msg.edit({
+      embeds: [buildBoard(data)],
+      components: [new ActionRowBuilder().addComponents(menu)]
+    });
   }
 }
 
@@ -95,7 +113,7 @@ client.once("ready", () => {
   console.log("Bot Ready");
 });
 
-// ================= إنشاء اللوحة =================
+// ================= تشغيل اللوحة =================
 client.on("messageCreate", async (message) => {
 
   if (message.author.bot) return;
@@ -117,7 +135,6 @@ client.on("interactionCreate", async (interaction) => {
   if (interaction.customId !== "panel") return;
 
   const data = load();
-  const guild = interaction.guild;
 
   // ================= استلام =================
   if (interaction.values[0] === "claim") {
@@ -132,7 +149,7 @@ client.on("interactionCreate", async (interaction) => {
     save(data);
 
     await interaction.deferUpdate();
-    await updatePanel(guild);
+    await updatePanel(interaction.guild);
   }
 
   // ================= إضافة / حذف =================
@@ -145,7 +162,7 @@ client.on("interactionCreate", async (interaction) => {
     adminMode.set(interaction.user.id, interaction.values[0]);
 
     return interaction.reply({
-      content: "اكتب في الشات: @user 5 (وسيتم التنفيذ تلقائيًا)",
+      content: "اكتب الآن في الشات: @الشخص + العدد (مثال: @user 5)",
       ephemeral: true
     });
   }
@@ -159,13 +176,12 @@ client.on("messageCreate", async (message) => {
   const mode = adminMode.get(message.author.id);
   if (!mode) return;
 
-  const args = message.content.split(" ");
+  const data = load();
+
   const user = message.mentions.users.first();
-  const amount = parseInt(args[1]);
+  const amount = parseInt(message.content.split(" ")[1]);
 
   if (!user || isNaN(amount)) return;
-
-  const data = load();
 
   if (!data.users[user.id]) data.users[user.id] = 0;
 
@@ -174,20 +190,29 @@ client.on("messageCreate", async (message) => {
 
   const log = await message.guild.channels.fetch(LOG_CHANNEL_ID).catch(() => null);
 
+  // ================= إضافة =================
   if (mode === "add") {
+
     data.users[user.id] += amount;
 
     log?.send({
       embeds: [
         new EmbedBuilder()
           .setTitle("➕ إضافة نقاط")
-          .setDescription(`👤 الإداري: <@${message.author.id}>\n🎯 الشخص: ${name}\n⭐ العدد: ${amount}`)
+          .setDescription(
+            `👤 الإداري: <@${message.author.id}>\n` +
+            `🎯 الشخص: ${name}\n` +
+            `⭐ العدد: ${amount}\n` +
+            `🕒 الوقت: ${getTime()}`
+          )
           .setColor(0x00ff00)
       ]
     });
   }
 
+  // ================= حذف =================
   if (mode === "remove") {
+
     data.users[user.id] -= amount;
 
     if (data.users[user.id] <= 0) delete data.users[user.id];
@@ -196,7 +221,12 @@ client.on("messageCreate", async (message) => {
       embeds: [
         new EmbedBuilder()
           .setTitle("➖ حذف نقاط")
-          .setDescription(`👤 الإداري: <@${message.author.id}>\n🎯 الشخص: ${name}\n⭐ العدد: ${amount}`)
+          .setDescription(
+            `👤 الإداري: <@${message.author.id}>\n` +
+            `🎯 الشخص: ${name}\n` +
+            `⭐ العدد: ${amount}\n` +
+            `🕒 الوقت: ${getTime()}`
+          )
           .setColor(0xff0000)
       ]
     });
